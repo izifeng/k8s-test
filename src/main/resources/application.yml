@@ -1,0 +1,8 @@
+server:
+  tomcat:
+    uri-encoding: UTF-8
+    max-threads: 1000
+    accept-count: 100
+    max-connections: 1200
+    min-spare-threads: 200
+  port: 8080
