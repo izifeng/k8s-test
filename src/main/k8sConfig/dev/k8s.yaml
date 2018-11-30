@@ -1,0 +1,64 @@
+#资源版本号
+apiVersion: apps/v1beta2
+ #资源名称
+kind: Deployment
+metadata:
+#pod名称
+  name: k8s-test
+   #命名空间
+  namespace: testing
+  labels:
+  #资源标签
+     k8s-app: k8s-test
+spec:
+#运行实例数
+  replicas: 1
+  selector:
+     matchLabels:
+     #选择器, 提供给service的选择标记
+        run: k8s-test
+  template:
+    metadata:
+      labels:
+      #标签
+        run: k8s-test
+    spec:
+    #使用k8s中的保密字典
+      imagePullSecrets:
+      #保密字典名称
+      - name: regsecret
+      containers:
+      #运行后容器名称
+      - name: k8s-test
+      #需要pull的容器
+        image: @docker.registry.name@/@project.name@-@version.env@:@git.tags@@git.commit.id.describe-short@@git.total.commit.count@
+
+          #部署时容器拉取策略
+        imagePullPolicy: Always
+        ports:
+        #应用在容器级别监听的端口,此处应该和环境变量中指定的端口保持一致
+        - containerPort: 8480
+
+#分隔线
+---
+# k8s services
+#k8s服务版本号(固定不变)
+apiVersion: v1
+#资源类型
+kind: Service
+metadata:
+ #服务名称
+  name: k8s-test
+   #命名空间
+  namespace: testing
+spec:
+#端口类型
+  type: NodePort
+  ports:
+  #容器端口号
+    - port: 8480
+     #服务端口号, 监听主机的端口. 可供外部访问
+      nodePort: 8480
+  selector:
+  #对应的pod名称
+    run: k8s-test

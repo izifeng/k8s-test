@@ -22,6 +22,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>1.8</java.version>
+        <docker.registry.name>registry.cn-hangzhou.aliyuncs.com/ydx</docker.registry.name>
     </properties>
 
     <dependencies>
@@ -50,15 +51,74 @@
     </profiles>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/k8sConfig/${version.env}</directory>
+                <!--是否替换文件中的变量-->
+                <filtering>true</filtering>
+                <includes>
+                    <include>**/*.yaml</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/docker</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>**/*</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>**/*.yml</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <includes>
+                    <include>**/*.xml</include>
+                    <include>**/*.properties</include>
+                    <include>**/*.xls</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
+            <!-- git commit id plugin -->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.7.0</version>
+                <groupId>pl.project13.maven</groupId>
+                <artifactId>git-commit-id-plugin</artifactId>
+                <version>2.2.5</version>
+                <executions>
+                    <execution>
+                        <id>get-the-git-infos</id>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                    </execution>
+                </executions>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
-                    <encoding>UTF8</encoding>
+                    <!-- 使properties扩展到整个maven bulid 周期
+                    Ref: https://github.com/ktoso/maven-git-commit-id-plugin/issues/280 -->
+                    <injectAllReactorProjects>true</injectAllReactorProjects>
+                    <dateFormat>yyyy.MM.dd HH:mm:ss</dateFormat>
+                    <verbose>true</verbose>
+                    <!-- 是否生 git.properties 属性文件 -->
+                    <generateGitPropertiesFile>true</generateGitPropertiesFile>
+                    <!--git描述配置,可选;由JGit提供实现;-->
+                    <gitDescribe>
+                        <!--是否生成描述属性-->
+                        <skip>false</skip>
+                        <!--提交操作未发现tag时,仅打印提交操作ID,-->
+                        <always>true</always>
+                        <!--提交操作ID显式字符长度,最大值为:40;默认值:7; 0代表特殊意义;后面有解释; -->
+                        <abbrev>7</abbrev>
+                        <!--构建触发时,代码有修改时(即"dirty state"),添加指定后缀;默认值:"";-->
+                        <dirty>_dirty_</dirty>
+                        <!--always print using the "tag-commits_from_tag-g_commit_id-maybe_dirty_" format, even if "on" a tag. The distance will always be 0 if you're "on" the tag. -->
+                        <forceLongFormat>false</forceLongFormat>
+                    </gitDescribe>
                 </configuration>
             </plugin>
             <plugin>
@@ -68,7 +128,7 @@
                     <executable>true</executable>
                     <layout>ZIP</layout>
                     <finalName>
-                        ${project.name}-${version.env}
+                        ${project.name}-${version.env}-${git.tags}${git.commit.id.describe-short}${git.total.commit.count}
                     </finalName>
                 </configuration>
                 <executions>
@@ -76,6 +136,72 @@
                         <goals>
                             <goal>repackage</goal>
                         </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.spotify</groupId>
+                <artifactId>docker-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>build-image</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>build</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>push-image</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>push</goal>
+                        </goals>
+                        <configuration>
+                            <imageName>
+                                ${docker.registry.name}/${project.name}-${version.env}:${git.tags}${git.commit.id.describe-short}${git.total.commit.count}
+                            </imageName>
+                        </configuration>
+                    </execution>
+                </executions>
+                <configuration>
+                    <serverId>my-aliyun-docker-registry</serverId>
+                    <registryUrl>${docker.registry.name}</registryUrl>
+                    <pushImage>false</pushImage>
+                    <imageName>
+                        ${docker.registry.name}/${project.name}-${version.env}:${git.tags}${git.commit.id.describe-short}${git.total.commit.count}
+                    </imageName>
+                    <dockerDirectory>${project.build.directory}/classes</dockerDirectory>
+                    <skipDockerBuild>false</skipDockerBuild>
+                    <resources>
+                        <resource>
+                            <directory>${project.build.directory}</directory>
+                            <include>
+                                ${project.name}-${version.env}-${git.tags}${git.commit.id.describe-short}${git.total.commit.count}.jar
+                            </include>
+                        </resource>
+                    </resources>
+                </configuration>
+            </plugin>
+
+            <!-- 拷贝指定文件到指定目录 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>1.8</version>
+                <executions>
+                    <execution>
+                        <!--<id>prepare-dependencies-repackage-copy</id>-->
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <tasks>
+                                <mkdir dir="k8s-yaml/${version.env}"/>
+                                <copy file="${project.build.outputDirectory}/${project.name}.yaml"
+                                      tofile="k8s-yaml/${version.env}/${project.name}.yaml" overwrite="true"/>
+                            </tasks>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
